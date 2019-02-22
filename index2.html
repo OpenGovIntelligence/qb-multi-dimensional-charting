@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <title>Republic of Lithuania - Pilot</title>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" type="text/css" href="css/dc.css">
+    <link rel="stylesheet" type="text/css" href="css/leaflet.css">
+    <link rel="stylesheet" type="text/css" href="css/bootstrap.css">
+    <link rel="stylesheet" type="text/css" href="css/main.css">
+</head>
+
+<body>
+    <div class="container-fluid">
+        <div class="row">
+            <div class="col-xs-12 dc-data-count dc-chart" id="data-count">
+                <h2>History
+        <small>
+          <span class="filter-count"></span> selected out of <span class="total-count"></span> records |
+           <a id="all" href="#">Reset All</a>
+          </span>
+        </small>
+      </h2> 
+            </div>
+        </div>
+        <div class="row" id="control-row">
+            <div class="col-sm-4" >
+                <h4>Map</h4>
+                <div id="map"></div>
+            </div>
+                <div class="col-sm-8">
+        <div class="row">
+            
+            <div class="col-sm-6 pie-chart">
+                <h4>Age</h4>
+                <div class="dc-chart" id="chart-ring-year"></div>
+            </div>
+            
+            <div class="col-sm-6 pie-chart">
+                <h4>County </h4>
+                <div id="chart-ring-day" class="dc-chart"></div>
+            </div>
+            
+            
+        </div>
+        <div class="row">
+            <div class="col-sm-4">
+                <div class="dc-chart" id="chart-community-rating-count"></div>
+            </div>
+            <div class="col-sm-4">
+                <div class="dc-chart" id="chart-ibu-count"></div>
+            </div>
+                 <div class="col-sm-4">
+                <h4>Municipality </h4>
+                <div class="dc-chart" id="chart-select"></div>
+                
+            </div>
+        </div>
+                    </div>
+            </div>
+        <div class="row">
+            <div class="col-xs-12">
+                <table class="table table-bordered table-striped" id="data-table">
+                    <thead>
+                        <tr class="header">
+                            <th>Country</th>
+                            <th>Age</th>
+                            <th>County</th>
+                            <th>Municipality</th>
+                            <th>Resident population</th>
+                            <th>Sex</th>
+                            <th>Year</th>
+                        </tr>
+                    </thead>
+                </table>
+            </div>
+        </div>
+    </div>
+    <script type="text/javascript" src="js/d3.js"></script>
+    <script type="text/javascript" src="js/crossfilter.js"></script>
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/dc/2.1.8/dc.js"></script>
+    <script type="text/javascript" src="js/leaflet.js"></script>
+    <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/underscore.js/1.8.3/underscore.js"></script>
+    <script type="text/javascript">
+        /*   <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.2.0/leaflet.js">*/
+//style="height: 50px;"
+        /* instantiate and configure map */
+        var map = L.map('map');
+        var mapPolys = new L.FeatureGroup();
+        L.tileLayer('https://api.tiles.mapbox.com/v4/{id}/{z}/{x}/{y}.png?access_token={accessToken}', {
+            id: 'mapbox.streets',
+            accessToken: 'pk.eyJ1IjoibW9nYWlvIiwiYSI6ImNqOGEzem9lOTA3bHgzMm5vNTlsaWt2aTQifQ.agsmlyRTTeHBc_aFVtzMGA',
+            maxZoom: 16
+        }).addTo(map);
+        /* Parse JSON file, create charts, draw markers on map */
+        d3.json('2_FixedV2.geojson', function(error, data) {
+            var luData = data.features;
+            var fullDateFormat = d3.time.format('%a, %d %b %Y %X %Z');
+            var yearFormat = d3.time.format('%Y');
+            var monthFormat = d3.time.format('%b');
+            var dayOfWeekFormat = d3.time.format('%a');
+            // normalize/parse data so dc can correctly sort & bin them
+            // I like to think of each "d" as a row in a spreadsheet
+            _.each(luData, function(d) {
+                d.properties.Age = d.properties.Age;
+                d.properties.Country = d.properties.Country;
+                d.properties.County = d.properties.County;
+                d.properties.Municipality = d.properties.Municipality;
+                d.properties.Resident_population_at_the_beginning_of_the_year_persons = parseInt(d.properties.Resident_population_at_the_beginning_of_the_year_persons);
+                d.properties.Sex = d.properties.Sex;
+                d.properties.Time_period = new Date(d.properties.Time_period);
+            });
+            // set crossfilter
+            var ndx = crossfilter(luData);
+            // create dimensions (x-axis values)
+            var luXAge = ndx.dimension(function(d) {
+                return d.properties.Age;
+            }),
+                luXCountry = ndx.dimension(function(d) {
+                    return d.properties.Country;
+                }),
+                luXCounty = ndx.dimension(function(d) {
+                    return d.properties.County;
+                }),
+                luXMunicipality = ndx.dimension(function(d) {
+                    return d.properties.Municipality;
+                }),
+                luXResident_population_at_the_beginning_of_the_year_persons = ndx.dimension(function(d) {
+                    return parseInt(d.properties.Resident_population_at_the_beginning_of_the_year_persons);
+                }),
+                luXSex = ndx.dimension(function(d) {
+                    return d.properties.Sex;
+                }),
+                luXTime_period = ndx.dimension(function(d) {
+                    dateTime =  new Date(d.properties.Time_period);
+                   // dateTime =  new Date(d.properties.Time_period).getFullYear();
+                    return dateTime;
+                }),
+                luXallDim = ndx.dimension(function(d) {
+                    return d;
+                });
+            // create groups (y-axis values)
+            var all = ndx.groupAll();
+            var countPerAge = luXAge.group().reduceCount(),
+                reduceSumPerAge = luXAge.group().reduceSum(function(d) { 
+                    if (d.properties){
+                        //console.log(d.properties.Sex+"=//=>"+parseInt(d.properties.Resident_population_at_the_beginning_of_the_year_persons));  
+                        if(parseInt(d.properties.Resident_population_at_the_beginning_of_the_year_persons)>10){
+                           return parseInt(d.properties.Resident_population_at_the_beginning_of_the_year_persons); 
+                        }else{ return 1;}
+                    }
+                }),
+                countPerCountry = luXCountry.group().reduceCount(),
+                countPerCounty = luXCounty.group().reduceCount(),
+                reduceSumPerCounty=luXCounty.group().reduceSum(function(d) { 
+                    if (d.properties){
+                        //console.log(d.properties.Sex+"=//=>"+parseInt(d.properties.Resident_population_at_the_beginning_of_the_year_persons));  
+                        if(parseInt(d.properties.Resident_population_at_the_beginning_of_the_year_persons)>10){
+                           return parseInt(d.properties.Resident_population_at_the_beginning_of_the_year_persons); 
+                        }else{ return 1;}
+                    }
+                }),
+                countPerMunicipality = luXMunicipality.group().reduceCount(),
+                reduceSumPerMunicipality=luXMunicipality.group().reduceSum(function(d) { 
+                    if (d.properties){
+                        //console.log(d.properties.Sex+"=//=>"+parseInt(d.properties.Resident_population_at_the_beginning_of_the_year_persons));  
+                        if(parseInt(d.properties.Resident_population_at_the_beginning_of_the_year_persons)>10){
+                           return parseInt(d.properties.Resident_population_at_the_beginning_of_the_year_persons); 
+                        }else{ return 1;}
+                    }
+                }),
+                countPerResident_population_at_the_beginning_of_the_year_persons = luXResident_population_at_the_beginning_of_the_year_persons.group().reduceCount(),
+                 reduceSumPerResident_population_at_the_beginning_of_the_year_persons=luXResident_population_at_the_beginning_of_the_year_persons.group().reduceSum(function(d) { 
+                    if (d.properties){
+                        //console.log(d.properties.Sex+"=//=>"+parseInt(d.properties.Resident_population_at_the_beginning_of_the_year_persons));  
+                        if(parseInt(d.properties.Resident_population_at_the_beginning_of_the_year_persons)>10){
+                           return parseInt(d.properties.Resident_population_at_the_beginning_of_the_year_persons); 
+                        }else{ return 1;}
+                    }
+                }),
+                countPerSex = luXSex.group().reduceCount(),
+                countPerTime_period = luXTime_period.group().reduceCount(),
+                reduceSumPerSex = luXSex.group().reduceSum(function(d) { 
+                    if (d.properties){
+                        //console.log(d.properties.Sex+"=//=>"+parseInt(d.properties.Resident_population_at_the_beginning_of_the_year_persons));  
+                        if(parseInt(d.properties.Resident_population_at_the_beginning_of_the_year_persons)>10){
+                           return parseInt(d.properties.Resident_population_at_the_beginning_of_the_year_persons); 
+                        }else{ return 1;}
+                    }
+                }),
+                                countPerTime_period2 = luXTime_period.group().reduceCount();
+
+                /*newnewcountPerSex = luXallDim.group(function(d) {if (d.properties)
+                {   console.log("d is not emp");
+                    return parseInt(d.properties.Resident_population_at_the_beginning_of_the_year_persons);
+                }else{
+                    console.log("d is emp");
+                    console.log(d);
+                }
+                                                          }
+                                             );*/
+            // specify charts
+            var ageChart = dc.pieChart('#chart-ring-year'),
+                //time_periodChart = dc.pieChart('#chart-ring-month'),
+                countyChart = dc.pieChart('#chart-ring-day'),
+                //municipalityCountChart = dc.barChart('#chart-rating-count'),
+                resident_population_at_the_beginning_of_the_year_personsCountChart = dc.barChart('#chart-community-rating-count'),
+                //sexCountChart = dc.barChart('#chart-abv-count'),
+                dayOfWeekChart = dc.rowChart('#chart-ibu-count'),
+                dataCount = dc.dataCount('#data-count'),
+                                select = dc.selectMenu('#chart-select'),
+
+                dataTable = dc.dataTable('#data-table');
+            
+            
+            ageChart.width(450).height(150).dimension(luXAge).group(reduceSumPerAge).innerRadius(20).legend(dc.legend());
+           // time_periodChart.width(150).height(150).dimension(luXTime_period).group(countPerTime_period).innerRadius(20);
+            countyChart.width(450).height(150).dimension(luXCounty).group(reduceSumPerCounty).innerRadius(20).legend(dc.legend());
+                        select.width(300).height(100).dimension(luXMunicipality).group(reduceSumPerMunicipality).multiple(true).numberVisible(8).controlsUseVisibility(true);
+
+            /*municipalityCountChart.width(300).height(180).dimension(luXCounty).group(countPerCounty).x(d3.scale.linear().domain([0, d3.max(luData, function(d) {
+                return d.properties.Municipality;
+            }) + 2])).elasticY(true).centerBar(true).barPadding(10).xAxisLabel('Municipality').yAxisLabel('Count').xUnits(function(d) {
+                return 5;
+            }).margins({
+                top: 10,
+                right: 20,
+                bottom: 50,
+                left: 50
+            });*/
+            resident_population_at_the_beginning_of_the_year_personsCountChart.width(300).height(180).dimension(luXResident_population_at_the_beginning_of_the_year_persons).group(reduceSumPerResident_population_at_the_beginning_of_the_year_persons).x(d3.scale.linear().domain([-2, d3.max(luData, function(d) {
+                return parseInt(d.properties.Resident_population_at_the_beginning_of_the_year_persons);
+            }) + 2])).elasticY(true).centerBar(true).barPadding(5).xAxisLabel('Resident population').yAxisLabel('Count').xUnits(function(d) {
+                return 5;
+            }).margins({
+                top: 10,
+                right: 20,
+                bottom: 50,
+                left: 50
+            });
+            resident_population_at_the_beginning_of_the_year_personsCountChart.xAxis().ticks(8, "s");
+            /*sexCountChart.width(300).height(180).dimension(luXSex).group(countPerSex).x(d3.scale.linear().domain([-2, d3.max(luData, function(d) {
+                return d.properties.Sex;
+            }) + 2])).elasticY(true).centerBar(true).barPadding(5).xAxisLabel('Sex').yAxisLabel('Count').xUnits(function(d) {
+                return 1;
+            }).margins({
+                top: 10,
+                right: 20,
+                bottom: 50,
+                left: 50
+            });
+            time_periodCountChart.width(400).height(180).dimension(luXSex).group(countPerSex).x(d3.scale.ordinal()).yAxisLabel('Count').xUnits(function(d) {
+                return 50;
+            }).margins({
+                top: 10,
+                right: 20,
+                bottom: 50,
+                left: 50
+            });*/
+            //time_periodCountChart.xAxis().ticks(5);
+            
+            
+                dayOfWeekChart.width(250).height(160).margins({top: 20, left: 10, right: 10, bottom: 20}).group(reduceSumPerSex).dimension(luXSex).ordinalColors(['#3182bd', '#9ecae1', '#c6dbef', '#dadaeb']).elasticX(true).xAxis().ticks(3);
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            dataCount
+                .dimension(ndx)
+                .group(all);
+
+            dataTable.dimension(luXallDim).group(function(d) {
+                return 'dc.js insists on putting a row here so I remove it using JS';
+            }).size(100).columns([
+
+                function(d) {
+                    return d.properties.Country;
+                }
+
+                ,
+                function(d) {
+                    return d.properties.Age;
+                }
+
+                ,
+                function(d) {
+                    return d.properties.County;
+                }
+
+                ,
+                function(d) {
+                    return d.properties.Municipality;
+                }
+
+                ,
+                function(d) {
+                    return parseInt(d.properties.Resident_population_at_the_beginning_of_the_year_persons);
+                }
+
+                ,
+                function(d) {
+                    return d.properties.Sex;
+                }
+
+                ,
+                function(d) {
+                    return d.properties.Time_period.getFullYear();
+                }
+            ]).sortBy(dc.pluck('Resident_population_at_the_beginning_of_the_year_persons')).order(d3.descending).on('renderlet', function(table) {
+                // each time table is rendered remove nasty extra row dc.js insists on adding
+                table.select('tr.dc-table-group').remove();
+                
+                
+                
+                
+                
+                
+                
+                // update map with breweries to match filtered data
+                mapPolys.clearLayers();
+                _.each(luXallDim.top(Infinity), function(d) {
+                                        
+                    //var latlng = L.GeoJSON.coordsToLatLngs(d.geometry.coordinates);
+                    //var polygon = L.polygon(latlng, {GeoJSON
+                       var polygon =  L.polygon(d.geometry.coordinates,{
+                        style: function(d) {
+                            var fillColor, density = parseInt(d.properties.Resident_population_at_the_beginning_of_the_year_persons);
+                            if (density > 80000) fillColor = "#f00";
+                            else if (density > 60000) fillColor = "#f20";
+                            else if (density > 50000) fillColor = "#ff4500";
+                            else if (density > 40000) fillColor = "#ff6700";
+                            else if (density > 30000) fillColor = "#ff8a00";
+                            else if (density > 20000) fillColor = "#ff9b00";
+                            else if (density > 10000) fillColor = "#ffbe00";
+                            else if (density > 0) fillColor = "#ffe000";
+                            else fillColor = "#fff200"; // no data
+                            return {
+                                color: "#999",
+                                weight: 1,
+                                fillColor: fillColor,
+                                fillOpacity: .7
+                            };
+                        }
+                       });
+                    
+                   polygon.bindPopup("<strong>" + d.properties.Municipality + "</strong><br/>" + 'Age: ' + d.properties.Age + '<br/>' + 'Gender: ' + d.properties.Sex + '<br/>' + 'Resident Population: ' + parseInt(d.properties.Resident_population_at_the_beginning_of_the_year_persons) + '<br/>' + d.properties.County + '<br/>' + 'Municipality: ' + d.properties.Municipality);
+                mapPolys.addLayer(polygon);
+                });
+                map.addLayer(mapPolys);
+                map.fitBounds(mapPolys.getBounds());
+            });
+            // register handlers
+            d3.selectAll('a#all').on('click', function() {
+                dc.filterAll();
+                dc.renderAll();
+            });
+            d3.selectAll('a#year').on('click', function() {
+                yearChart.filterAll();
+                dc.redrawAll();
+            });
+            d3.selectAll('a#month').on('click', function() {
+                monthChart.filterAll();
+                dc.redrawAll();
+            });
+            d3.selectAll('a#day').on('click', function() {
+                dayChart.filterAll();
+                dc.redrawAll();
+            });
+            // showtime!
+            dc.renderAll();
+        });
+    </script>
+</body>
+
+</html>
